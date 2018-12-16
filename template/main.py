@@ -210,7 +210,7 @@ def train_and_evaluate(minsup, database, subsets):
 		pos_support = len(gid_subsets[0])
 		print('{} {}'.format(pattern, pos_support))
 	# printing classification results:
-	print(predicted)
+	print(predicted.tolist())
 	print('accuracy: {}'.format(accuracy))
 	print()  # Blank line to indicate end of fold.
 

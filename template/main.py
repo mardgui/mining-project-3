@@ -110,8 +110,6 @@ class TopKConfident(FrequentPositiveGraphs):
     def store(self, dfs_code, gid_subsets):
         total_support = len(gid_subsets[0]) + len(gid_subsets[2])
         confidence = len(gid_subsets[0]) / total_support
-        if dfs_code == "[(frm=0, to=1, vevlb=('0', '100', '0')),(frm=1, to=2, vevlb=(-1, '100', '0')),(frm=2, to=3, vevlb=(-1, '100', '0')),(frm=3, to=4, vevlb=(-1, '100', '0')),(frm=4, to=5, vevlb=(-1, '100', '0')),(frm=5, to=6, vevlb=(-1, '100', '0')),(frm=6, to=7, vevlb=(-1, '100', '0')),(frm=4, to=8, vevlb=(-1, '100', '0'))]":
-            print()
         if len(self.top) < self.k or confidence > self.top[self.k - 1][0]:
             found = False
             for i, t in enumerate(self.top):

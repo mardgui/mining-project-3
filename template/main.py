@@ -98,9 +98,30 @@ class FrequentPositiveGraphs(PatternGraphs):
 
 
 class TopKConfident(FrequentPositiveGraphs):
+    def __init__(self, minsup, database, subsets, k):
+        super().__init__(minsup, database, subsets)
+        self.top = []
+        self.k = k
+
     def prune(self, gid_subsets):
         # first subset is the set of positive ids
         return len(gid_subsets[0] + gid_subsets[1]) < self.minsup
+
+    def store(self, dfs_code, gid_subsets):
+        total_support = len(gid_subsets[0]) + len(gid_subsets[1])
+        confidence = len(gid_subsets[0]) / total_support
+        if len(self.top) < self.k or confidence > self.top[self.k - 1][0]:
+            found = False
+            for i, t in enumerate(self.top):
+                if t[0] == confidence and t[1] == total_support:
+                    t[2].append(dfs_code)
+                    found = True
+            if not found:
+                self.top.append((confidence, total_support, [dfs_code, ]))
+                self.top = sorted(self.top, reverse=True, key=lambda x: (x[0], x[1]))
+                if len(self.top) > self.k:
+                    del self.top[-1]
+        self.patterns.append((dfs_code, gid_subsets))
 
 
 def example1():
@@ -165,33 +186,13 @@ def task1():
         database_file_name_neg)  # Reading negative graphs, adding them to database and getting ids
 
     subsets = [pos_ids, neg_ids]  # The ids for the positive and negative labelled graphs in the database
-    task = TopKConfident(minsup, graph_database, subsets)  # Creating task
+    task = TopKConfident(minsup, graph_database, subsets, k)  # Creating task
 
     gSpan(task).run()  # Running gSpan
 
-    patterns = {}
-
-    for pattern, gid_subsets in task.patterns:
-        pos_support = len(gid_subsets[0])
-        neg_support = len(gid_subsets[1])
-        support = pos_support + neg_support
-        confidence = pos_support / support
-        patterns[pattern] = (confidence, support)
-
-    sorted_by_value = sorted(patterns.items(), reverse=True, key=lambda kv: (kv[1][0], kv[1][1]))
-    i = 1
-    tmp = sorted_by_value[0][1]
-
-    # Printing frequent patterns along with their positive support:
-    for pattern, scores in sorted_by_value:
-        confidence = scores[0]
-        support = scores[1]
-        if scores != tmp:
-            i += 1
-            if i > k:
-                break
-            tmp = scores
-        print('{} {} {}'.format(pattern, confidence, support))
+    for t in task.top:
+        for pattern in t[2]:
+            print('{} {} {}'.format(pattern, t[0], t[1]))
 
 
 def example2():
@@ -286,5 +287,5 @@ def train_and_evaluate(minsup, database, subsets):
 
 
 if __name__ == '__main__':
-    # task1()
-    example2()
+    task1()
+    # example2()

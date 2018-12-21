@@ -11,6 +11,11 @@ import numpy
 from gspan_mining import GraphDatabase
 from gspan_mining import gSpan
 from sklearn import metrics, tree
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
 
 
 class PatternGraphs:
@@ -123,12 +128,7 @@ class TopKConfident2(FrequentPositiveGraphs):
         self.patterns.append((dfs_code, gid_subsets))
 
 
-class TopKConfident4(FrequentPositiveGraphs):
-    def __init__(self, minsup, database, subsets, k):
-        super().__init__(minsup, database, subsets)
-        self.top = []
-        self.k = k
-
+class TopKConfident4(TopKConfident2):
     def prune(self, gid_subsets):
         # first subset is the set of positive ids
         return len(gid_subsets[0] + gid_subsets[2]) < self.minsup
@@ -156,10 +156,6 @@ class TopKConfident4Rule(TopKConfident4):
         self.patterns_dict = {}
         self.test_pos = {}
         self.test_neg = {}
-
-    def prune(self, gid_subsets):
-        # first subset is the set of positive ids
-        return len(gid_subsets[0] + gid_subsets[2]) < self.minsup
 
     def store(self, dfs_code, gid_subsets):
         for gid in gid_subsets[1]:
@@ -191,6 +187,13 @@ class TopKConfident4Rule(TopKConfident4):
                     del self.top[-1]
         self.patterns.append((dfs_code, gid_subsets))
         self.patterns_dict[dfs_code] = gid_subsets
+
+
+def file_len(fname):
+    with open(fname) as f:
+        for i, l in enumerate(f):
+            pass
+    return i + 1
 
 
 def task1():
@@ -334,6 +337,61 @@ def task3():
             sequential_rule_learning(minsup, graph_database, subsets, k)
 
 
+def task4():
+    args = sys.argv
+    database_file_name_pos = args[1]  # First parameter: path to positive class file
+    database_file_name_neg = args[2]  # Second parameter: path to negative class file
+    nfolds = int(args[3])  # Fifth parameter: number of folds to use in the k-fold cross-validation.
+
+    if not os.path.exists(database_file_name_pos):
+        print('{} does not exist.'.format(database_file_name_pos))
+        sys.exit()
+    if not os.path.exists(database_file_name_neg):
+        print('{} does not exist.'.format(database_file_name_neg))
+        sys.exit()
+
+    graph_database = GraphDatabase()  # Graph database object
+    pos_ids = graph_database.read_graphs(
+        database_file_name_pos)  # Reading positive graphs, adding them to database and getting ids
+    neg_ids = graph_database.read_graphs(
+        database_file_name_neg)  # Reading negative graphs, adding them to database and getting ids
+
+    x = len(pos_ids) + len(neg_ids)
+    k = int(pow(x, 1/2))
+    minsup = int((x - 5) / 4)
+
+    # If less than two folds: using the same set as training and test set (note this is not an accurate way to evaluate the performances!)
+    if nfolds < 2:
+        subsets = [
+            pos_ids,  # Positive training set
+            pos_ids,  # Positive test set
+            neg_ids,  # Negative training set
+            neg_ids  # Negative test set
+        ]
+        # Printing fold number:
+        print('fold {}'.format(1))
+        train_and_evaluate(minsup, graph_database, subsets, k)
+
+    # Otherwise: performs k-fold cross-validation:
+    else:
+        pos_fold_size = len(pos_ids) // nfolds
+        neg_fold_size = len(neg_ids) // nfolds
+        for i in range(nfolds):
+            # Use fold as test set, the others as training set for each class;
+            # identify all the subsets to be maintained by the graph mining algorithm.
+            subsets = [
+                numpy.concatenate((pos_ids[:i * pos_fold_size], pos_ids[(i + 1) * pos_fold_size:])),
+                # Positive training set
+                pos_ids[i * pos_fold_size:(i + 1) * pos_fold_size],  # Positive test set
+                numpy.concatenate((neg_ids[:i * neg_fold_size], neg_ids[(i + 1) * neg_fold_size:])),
+                # Negative training set
+                neg_ids[i * neg_fold_size:(i + 1) * neg_fold_size],  # Negative test set
+            ]
+            # Printing fold number:
+            print('fold {}'.format(i + 1))
+            another_classifier(minsup, graph_database, subsets, k)
+
+
 def train_and_evaluate(minsup, database, subsets, k):
     task = TopKConfident4(minsup, database, subsets, k)  # Creating task
 
@@ -442,8 +500,36 @@ def sequential_rule_learning(minsup, database, subsets, k):
     print("accuracy: {}\n".format(nb_matches / len(predictions)))
 
 
+def another_classifier(minsup, database, subsets, k):
+    task = TopKConfident4(minsup, database, subsets, k)  # Creating task
+
+    gSpan(task).run()  # Running gSpan
+
+    # Creating feature matrices for training and testing:
+    features = task.get_feature_matrices()
+    train_fm = numpy.concatenate((features[0], features[2]))  # Training feature matrix
+    train_labels = numpy.concatenate(
+        (numpy.full(len(features[0]), 1, dtype=int), numpy.full(len(features[2]), -1, dtype=int)))  # Training labels
+    test_fm = numpy.concatenate((features[1], features[3]))  # Testing feature matrix
+    test_labels = numpy.concatenate(
+        (numpy.full(len(features[1]), 1, dtype=int), numpy.full(len(features[3]), -1, dtype=int)))  # Testing labels
+
+    classifier = GaussianProcessClassifier(random_state=1)  # Creating model object
+    classifier.fit(train_fm, train_labels)  # Training model
+
+    predicted = classifier.predict(test_fm)  # Using model to predict labels of testing data
+
+    accuracy = metrics.accuracy_score(test_labels, predicted)  # Computing accuracy:
+
+    # Printing frequent patterns along with their positive support:
+    for t in task.top:
+        for pattern in t[2]:
+            print('{} {} {}'.format(pattern, t[0], t[1]))
+    # printing classification results:
+    print(predicted.tolist())
+    print('accuracy: {}'.format(accuracy))
+    print()  # Blank line to indicate end of fold.
+
+
 if __name__ == '__main__':
-    task3()
-    # sys.stdout = open('test.txt', 'w')
-    # task2()
-    # sys.stdout = sys.__stdout__
+    task4()

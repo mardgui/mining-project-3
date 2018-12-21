@@ -151,16 +151,23 @@ class TopKConfident4(FrequentPositiveGraphs):
 
 
 class TopKConfident4Rule(TopKConfident4):
-    def __init__(self, minsup, database, subsets, ignored):
+    def __init__(self, minsup, database, subsets):
         super().__init__(minsup, database, subsets, 1)
         self.patterns_dict = {}
-        self.ignored = ignored
+        self.test_dfs = {}
 
     def prune(self, gid_subsets):
         # first subset is the set of positive ids
         return len(gid_subsets[0] + gid_subsets[2]) < self.minsup
 
     def store(self, dfs_code, gid_subsets):
+        for gid in gid_subsets[1] + gid_subsets[3]:
+            try:
+                self.test_dfs[gid].append(dfs_code)
+            except KeyError:
+                self.test_dfs[gid] = []
+                self.test_dfs[gid].append(dfs_code)
+
         total_support = len(gid_subsets[0]) + len(gid_subsets[2])
         confidence = max(len(gid_subsets[0]), len(gid_subsets[2])) / total_support
         if len(self.top) < self.k or confidence >= self.top[self.k - 1][0]:
@@ -353,6 +360,7 @@ def train_and_evaluate(minsup, database, subsets, k):
 def sequential_rule_learning(minsup, database, subsets, k):
     ignored = []
     rules = []
+    test_trans = []
 
     new_subsets = []
     for subset in subsets:
@@ -374,8 +382,11 @@ def sequential_rule_learning(minsup, database, subsets, k):
         if len(new_subsets[0]) == 0 and len(new_subsets[2]) == 0:
             break
 
-        task = TopKConfident4Rule(minsup, database, new_subsets, ignored)
+        task = TopKConfident4Rule(minsup, database, new_subsets)
         gSpan(task).run()
+
+        if len(test_trans) == 0:
+            test_trans = sorted(task.test_dfs.items())
 
         try:
             top_pattern = min(task.top[0][2])
@@ -386,6 +397,32 @@ def sequential_rule_learning(minsup, database, subsets, k):
         rules.append((top_pattern, 1 if len(cover[0]) > len(cover[2]) else -1))
         newly_ignored = [task.patterns_dict[min(task.top[0][2])][0], task.patterns_dict[min(task.top[0][2])][2]]
         ignored.extend([item for sublist in newly_ignored for item in sublist])
+
+    nb_pos = len(new_subsets[0])
+    nb_neg = len(new_subsets[2])
+    default_class = -1 if nb_neg > nb_pos else 1
+
+    predictions = []
+    for trans in test_trans:
+        found = False
+        for rule in rules:
+            if rule[0] in trans[1]:
+                predictions.append(rule[1])
+                found = True
+                break
+        if not found:
+            predictions.append(default_class)
+    print(predictions)
+
+    nb_matches = 0
+    for i, prediction in enumerate(predictions):
+        if i < 5:
+            if prediction == 1:
+                nb_matches += 1
+        else:
+            if prediction == -1:
+                nb_matches += 1
+    print("accuracy: {}\n".format(nb_matches / 10))
 
 
 if __name__ == '__main__':

@@ -110,14 +110,14 @@ class TopKConfident(FrequentPositiveGraphs):
     def store(self, dfs_code, gid_subsets):
         total_support = len(gid_subsets[0]) + len(gid_subsets[2])
         confidence = len(gid_subsets[0]) / total_support
-        if len(self.top) < self.k or confidence > self.top[self.k - 1][0]:
+        if len(self.top) < self.k or confidence >= self.top[self.k - 1][0]:
             found = False
             for i, t in enumerate(self.top):
                 if t[0] == confidence and t[1] == total_support:
                     t[2].append(dfs_code)
                     found = True
             if not found:
-                self.top.append((confidence, total_support, [dfs_code, ]))
+                self.top.append((confidence, total_support, [dfs_code]))
                 self.top = sorted(self.top, reverse=True, key=lambda x: (x[0], x[1]))
                 if len(self.top) > self.k:
                     del self.top[-1]
@@ -372,4 +372,6 @@ def train_and_evaluate_2(minsup, database, subsets, k):
 
 if __name__ == '__main__':
     # task1()
+    # sys.stdout = open('test.txt', 'w')
     task2()
+    # sys.stdout = sys.__stdout__

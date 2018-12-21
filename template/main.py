@@ -162,7 +162,7 @@ class TopKConfident4Rule(TopKConfident4):
 
     def store(self, dfs_code, gid_subsets):
         total_support = len(gid_subsets[0]) + len(gid_subsets[2])
-        confidence = max(len(gid_subsets[0]), len(gid_subsets[1])) / total_support
+        confidence = max(len(gid_subsets[0]), len(gid_subsets[2])) / total_support
         if len(self.top) < self.k or confidence >= self.top[self.k - 1][0]:
             found = False
             for i, t in enumerate(self.top):

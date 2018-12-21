@@ -150,6 +150,34 @@ class TopKConfident4(FrequentPositiveGraphs):
         self.patterns.append((dfs_code, gid_subsets))
 
 
+class TopKConfident4Rule(TopKConfident4):
+    def __init__(self, minsup, database, subsets, ignored):
+        super().__init__(minsup, database, subsets, 1)
+        self.patterns_dict = {}
+        self.ignored = ignored
+
+    def prune(self, gid_subsets):
+        # first subset is the set of positive ids
+        return len(gid_subsets[0] + gid_subsets[2]) < self.minsup
+
+    def store(self, dfs_code, gid_subsets):
+        total_support = len(gid_subsets[0]) + len(gid_subsets[2])
+        confidence = max(len(gid_subsets[0]), len(gid_subsets[1])) / total_support
+        if len(self.top) < self.k or confidence >= self.top[self.k - 1][0]:
+            found = False
+            for i, t in enumerate(self.top):
+                if t[0] == confidence and t[1] == total_support:
+                    t[2].append(dfs_code)
+                    found = True
+            if not found:
+                self.top.append((confidence, total_support, [dfs_code]))
+                self.top = sorted(self.top, reverse=True, key=lambda x: (x[0], x[1]))
+                if len(self.top) > self.k:
+                    del self.top[-1]
+        self.patterns.append((dfs_code, gid_subsets))
+        self.patterns_dict[dfs_code] = gid_subsets
+
+
 def task1():
     """
     Runs gSpan with the specified positive and negative graphs, finds all frequent subgraphs in the positive class
@@ -216,7 +244,7 @@ def task2():
         ]
         # Printing fold number:
         print('fold {}'.format(1))
-        train_and_evaluate_2(minsup, graph_database, subsets, k)
+        train_and_evaluate(minsup, graph_database, subsets, k)
 
     # Otherwise: performs k-fold cross-validation:
     else:
@@ -235,10 +263,63 @@ def task2():
             ]
             # Printing fold number:
             print('fold {}'.format(i + 1))
-            train_and_evaluate_2(minsup, graph_database, subsets, k)
+            train_and_evaluate(minsup, graph_database, subsets, k)
 
 
-def train_and_evaluate_2(minsup, database, subsets, k):
+def task3():
+    args = sys.argv
+    database_file_name_pos = args[1]  # First parameter: path to positive class file
+    database_file_name_neg = args[2]  # Second parameter: path to negative class file
+    k = int(args[3])  # Third parameter: k
+    minsup = int(args[4])  # Fourth parameter: minimum support
+    nfolds = int(args[5])  # Fifth parameter: number of folds to use in the k-fold cross-validation.
+
+    if not os.path.exists(database_file_name_pos):
+        print('{} does not exist.'.format(database_file_name_pos))
+        sys.exit()
+    if not os.path.exists(database_file_name_neg):
+        print('{} does not exist.'.format(database_file_name_neg))
+        sys.exit()
+
+    graph_database = GraphDatabase()  # Graph database object
+    pos_ids = graph_database.read_graphs(
+        database_file_name_pos)  # Reading positive graphs, adding them to database and getting ids
+    neg_ids = graph_database.read_graphs(
+        database_file_name_neg)  # Reading negative graphs, adding them to database and getting ids
+
+    # If less than two folds: using the same set as training and test set (note this is not an accurate way to evaluate the performances!)
+    if nfolds < 2:
+        subsets = [
+            pos_ids,  # Positive training set
+            pos_ids,  # Positive test set
+            neg_ids,  # Negative training set
+            neg_ids  # Negative test set
+        ]
+        # Printing fold number:
+        print('fold {}'.format(1))
+        sequential_rule_learning(minsup, graph_database, subsets, k)
+
+    # Otherwise: performs k-fold cross-validation:
+    else:
+        pos_fold_size = len(pos_ids) // nfolds
+        neg_fold_size = len(neg_ids) // nfolds
+        for i in range(nfolds):
+            # Use fold as test set, the others as training set for each class;
+            # identify all the subsets to be maintained by the graph mining algorithm.
+            subsets = [
+                numpy.concatenate((pos_ids[:i * pos_fold_size], pos_ids[(i + 1) * pos_fold_size:])),
+                # Positive training set
+                pos_ids[i * pos_fold_size:(i + 1) * pos_fold_size],  # Positive test set
+                numpy.concatenate((neg_ids[:i * neg_fold_size], neg_ids[(i + 1) * neg_fold_size:])),
+                # Negative training set
+                neg_ids[i * neg_fold_size:(i + 1) * neg_fold_size],  # Negative test set
+            ]
+            # Printing fold number:
+            print('fold {}'.format(i + 1))
+            sequential_rule_learning(minsup, graph_database, subsets, k)
+
+
+def train_and_evaluate(minsup, database, subsets, k):
     task = TopKConfident4(minsup, database, subsets, k)  # Creating task
 
     gSpan(task).run()  # Running gSpan
@@ -269,8 +350,43 @@ def train_and_evaluate_2(minsup, database, subsets, k):
     print()  # Blank line to indicate end of fold.
 
 
+def sequential_rule_learning(minsup, database, subsets, k):
+    ignored = []
+    rules = []
+
+    new_subsets = []
+    for subset in subsets:
+        new_subsets.append(list(subset))
+
+    for i in range(k):
+        to_del = []
+        for j, subset in enumerate(new_subsets):
+            if j == 0 or j == 2:
+                for k, gid in enumerate(subset):
+                    if int(gid) in ignored or gid in ignored:
+                        to_del.append((j, k))
+
+        to_del = sorted(to_del, reverse=True, key=lambda x: (x[0], x[1]))
+
+        for t in to_del:
+            del new_subsets[t[0]][t[1]]
+
+        task = TopKConfident4Rule(minsup, database, new_subsets, ignored)
+        gSpan(task).run()
+
+        try:
+            top_pattern = min(task.top[0][2])
+        except IndexError:
+            print()
+        print('{} {} {}'.format(top_pattern, task.top[0][0], task.top[0][1]))
+        cover = task.patterns_dict[top_pattern]
+        rules.append((top_pattern, 1 if len(cover[0]) > len(cover[2]) else -1))
+        newly_ignored = [task.patterns_dict[min(task.top[0][2])][0], task.patterns_dict[min(task.top[0][2])][2]]
+        ignored.extend([item for sublist in newly_ignored for item in sublist])
+
+
 if __name__ == '__main__':
-    # task1()
+    task3()
     # sys.stdout = open('test.txt', 'w')
-    task2()
+    # task2()
     # sys.stdout = sys.__stdout__

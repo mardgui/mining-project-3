@@ -371,13 +371,16 @@ def sequential_rule_learning(minsup, database, subsets, k):
         for t in to_del:
             del new_subsets[t[0]][t[1]]
 
+        if len(new_subsets[0]) == 0 and len(new_subsets[2]) == 0:
+            break
+
         task = TopKConfident4Rule(minsup, database, new_subsets, ignored)
         gSpan(task).run()
 
         try:
             top_pattern = min(task.top[0][2])
         except IndexError:
-            print()
+            break
         print('{} {} {}'.format(top_pattern, task.top[0][0], task.top[0][1]))
         cover = task.patterns_dict[top_pattern]
         rules.append((top_pattern, 1 if len(cover[0]) > len(cover[2]) else -1))

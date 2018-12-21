@@ -154,19 +154,27 @@ class TopKConfident4Rule(TopKConfident4):
     def __init__(self, minsup, database, subsets):
         super().__init__(minsup, database, subsets, 1)
         self.patterns_dict = {}
-        self.test_dfs = {}
+        self.test_pos = {}
+        self.test_neg = {}
 
     def prune(self, gid_subsets):
         # first subset is the set of positive ids
         return len(gid_subsets[0] + gid_subsets[2]) < self.minsup
 
     def store(self, dfs_code, gid_subsets):
-        for gid in gid_subsets[1] + gid_subsets[3]:
+        for gid in gid_subsets[1]:
             try:
-                self.test_dfs[gid].append(dfs_code)
+                self.test_pos[gid].append(dfs_code)
             except KeyError:
-                self.test_dfs[gid] = []
-                self.test_dfs[gid].append(dfs_code)
+                self.test_pos[gid] = []
+                self.test_pos[gid].append(dfs_code)
+
+        for gid in gid_subsets[3]:
+            try:
+                self.test_neg[gid].append(dfs_code)
+            except KeyError:
+                self.test_neg[gid] = []
+                self.test_neg[gid].append(dfs_code)
 
         total_support = len(gid_subsets[0]) + len(gid_subsets[2])
         confidence = max(len(gid_subsets[0]), len(gid_subsets[2])) / total_support
@@ -360,7 +368,8 @@ def train_and_evaluate(minsup, database, subsets, k):
 def sequential_rule_learning(minsup, database, subsets, k):
     ignored = []
     rules = []
-    test_trans = []
+    test_pos = []
+    test_neg = []
 
     new_subsets = []
     for subset in subsets:
@@ -385,8 +394,9 @@ def sequential_rule_learning(minsup, database, subsets, k):
         task = TopKConfident4Rule(minsup, database, new_subsets)
         gSpan(task).run()
 
-        if len(test_trans) == 0:
-            test_trans = sorted(task.test_dfs.items())
+        if len(test_pos) == 0:
+            test_pos = sorted(task.test_pos.items())
+            test_neg = sorted(task.test_neg.items())
 
         try:
             top_pattern = min(task.top[0][2])
@@ -394,7 +404,7 @@ def sequential_rule_learning(minsup, database, subsets, k):
             break
         print('{} {} {}'.format(top_pattern, task.top[0][0], task.top[0][1]))
         cover = task.patterns_dict[top_pattern]
-        rules.append((top_pattern, 1 if len(cover[0]) > len(cover[2]) else -1))
+        rules.append((top_pattern, -1 if len(cover[2]) > len(cover[0]) else 1))
         newly_ignored = [task.patterns_dict[min(task.top[0][2])][0], task.patterns_dict[min(task.top[0][2])][2]]
         ignored.extend([item for sublist in newly_ignored for item in sublist])
 
@@ -403,7 +413,8 @@ def sequential_rule_learning(minsup, database, subsets, k):
     default_class = -1 if nb_neg > nb_pos else 1
 
     predictions = []
-    for trans in test_trans:
+    nb_matches = 0
+    for trans in test_pos:
         found = False
         for rule in rules:
             if rule[0] in trans[1]:
@@ -412,17 +423,23 @@ def sequential_rule_learning(minsup, database, subsets, k):
                 break
         if not found:
             predictions.append(default_class)
-    print(predictions)
+        if predictions[-1] == 1:
+            nb_matches += 1
 
-    nb_matches = 0
-    for i, prediction in enumerate(predictions):
-        if i < 5:
-            if prediction == 1:
-                nb_matches += 1
-        else:
-            if prediction == -1:
-                nb_matches += 1
-    print("accuracy: {}\n".format(nb_matches / 10))
+    for trans in test_neg:
+        found = False
+        for rule in rules:
+            if rule[0] in trans[1]:
+                predictions.append(rule[1])
+                found = True
+                break
+        if not found:
+            predictions.append(default_class)
+        if predictions[-1] == -1:
+            nb_matches += 1
+
+    print(predictions)
+    print("accuracy: {}\n".format(nb_matches / len(predictions)))
 
 
 if __name__ == '__main__':
